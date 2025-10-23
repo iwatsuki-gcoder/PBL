@@ -80,7 +80,6 @@ void sjf(int n) {
     struct Job temp[MAX];
     for (int i = 0; i < n; i++) temp[i] = jobs[i];
 
-    // Sort jobs by burst time
     for (int i = 0; i < n-1; i++)
         for (int j = i+1; j < n; j++)
             if (temp[i].burst > temp[j].burst) {
