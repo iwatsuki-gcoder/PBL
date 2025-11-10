@@ -1,1 +1,255 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>CPU Scheduling - Basic Frontend</title>
+  <style>
+    /* Basic, minimal styling */
+    body{font-family: Arial, Helvetica, sans-serif;margin:20px;background:#f7f7f7;color:#222}
+    h1{font-size:20px;margin-bottom:8px}
+    .card{background:#fff;border:1px solid #e0e0e0;padding:14px;border-radius:6px;max-width:880px;margin-bottom:12px}
+    label{display:inline-block;margin-right:8px}
+    input[type="number"]{width:84px;padding:6px;margin-right:8px}
+    select{padding:6px}
+    button{padding:8px 10px;border-radius:4px;border:1px solid #bbb;background:#fafafa;cursor:pointer}
+    button:hover{background:#f0f0f0}
+    table{width:100%;border-collapse:collapse;margin-top:10px}
+    th,td{border:1px solid #e8e8e8;padding:8px;text-align:center}
+    .controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    .muted{color:#666;font-size:13px}
+    .output{white-space:pre-wrap;font-family:monospace;background:#fff;padding:10px;border-radius:6px;border:1px solid #eee}
+    .small{font-size:13px}
+  </style>
+</head>
+<body>
+  <h1>CPU Scheduling — Basic Frontend</h1>
 
+  <div class="card">
+    <div class="controls">
+      <label>Processes:</label>
+      <button id="add">+ Add</button>
+      <button id="remove">- Remove</button>
+      <span class="muted">(Add rows, then edit Arrival, Burst, Priority)</span>
+    </div>
+
+    <table id="ptable" aria-label="process table">
+      <thead>
+        <tr>
+          <th>PID</th>
+          <th>Arrival Time</th>
+          <th>Burst Time</th>
+          <th>Priority</th>
+        </tr>
+      </thead>
+      <tbody>
+      </tbody>
+    </table>
+
+    <div style="margin-top:12px" class="controls">
+      <label for="algo">Algorithm:</label>
+      <select id="algo">
+        <option value="fcfs">FCFS (First Come First Serve)</option>
+        <option value="sjf">SJF (Shortest Job First)</option>
+        <option value="priority">Priority Scheduling</option>
+        <option value="rr">Round Robin</option>
+      </select>
+
+      <label id="qLabel" style="display:none">Time Quantum:</label>
+      <input id="quantum" type="number" min="1" value="2" style="display:none" />
+
+      <button id="run">Run</button>
+      <button id="reset">Reset Table</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 style="margin:0 0 8px 0">Result</h2>
+    <div id="resultArea" class="output small">No result yet. Click Run.</div>
+  </div>
+
+  <script>
+    // Minimal interactive behavior + scheduling implementations.
+    const tbody = document.querySelector('#ptable tbody');
+    const addBtn = document.getElementById('add');
+    const removeBtn = document.getElementById('remove');
+    const runBtn = document.getElementById('run');
+    const resetBtn = document.getElementById('reset');
+    const algoSel = document.getElementById('algo');
+    const quantumInput = document.getElementById('quantum');
+    const qLabel = document.getElementById('qLabel');
+    const resultArea = document.getElementById('resultArea');
+
+    function addRow(arrival=0, burst=1, pr=1){
+      const pid = tbody.children.length + 1;
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>P${pid}</td>
+        <td><input type="number" min="0" value="${arrival}" class="arrival" /></td>
+        <td><input type="number" min="1" value="${burst}" class="burst" /></td>
+        <td><input type="number" min="0" value="${pr}" class="priority" /></td>
+      `;
+      tbody.appendChild(tr);
+    }
+
+    function removeRow(){
+      if(tbody.children.length>0) tbody.removeChild(tbody.lastElementChild);
+    }
+
+    function resetTable(){
+      tbody.innerHTML = '';
+      addRow(0,5,1);
+      addRow(2,3,2);
+      addRow(4,1,3);
+    }
+
+    // Toggle quantum visibility for RR
+    algoSel.addEventListener('change', ()=>{
+      if(algoSel.value === 'rr'){
+        quantumInput.style.display = 'inline-block';
+        qLabel.style.display = 'inline-block';
+      } else {
+        quantumInput.style.display = 'none';
+        qLabel.style.display = 'none';
+      }
+    });
+
+    addBtn.addEventListener('click', ()=>addRow());
+    removeBtn.addEventListener('click', removeRow);
+    resetBtn.addEventListener('click', resetTable);
+
+    // Simple helpers
+    function readProcesses(){
+      const rows = Array.from(tbody.children);
+      return rows.map((r,i)=>({
+        pid: i+1,
+        at: parseInt(r.querySelector('.arrival').value,10)||0,
+        bt: parseInt(r.querySelector('.burst').value,10)||1,
+        pr: parseInt(r.querySelector('.priority').value,10)||0,
+        ct:0, wt:0, tat:0, rt:0
+      }));
+    }
+
+    function formatTable(processes){
+      let out = 'PID\tArrival\tBurst\tPriority\tWaiting\tTurnaround\n';
+      out += '-----------------------------------------------------------\n';
+      processes.forEach(p=>{
+        out += `P${p.pid}\t${p.at}\t${p.bt}\t${p.pr}\t${p.wt}\t${p.tat}\n`;
+      });
+      out += '-----------------------------------------------------------\n';
+      const n = processes.length;
+      const avgwt = (processes.reduce((s,p)=>s+p.wt,0)/n).toFixed(2);
+      const avgtat = (processes.reduce((s,p)=>s+p.tat,0)/n).toFixed(2);
+      out += `Average Waiting Time   : ${avgwt}\n`;
+      out += `Average Turnaround Time: ${avgtat}\n`;
+      return out;
+    }
+
+    // Algorithms
+    function fcfs(ps){
+      ps.sort((a,b)=>a.at - b.at || a.pid - b.pid);
+      let time = 0;
+      for(const p of ps){
+        if(time < p.at) time = p.at;
+        time += p.bt;
+        p.ct = time; p.tat = p.ct - p.at; p.wt = p.tat - p.bt;
+      }
+      return ps;
+    }
+
+    function sjf(ps){
+      // Non-preemptive SJF considering arrival times
+      const n = ps.length;
+      let time = 0, done = 0;
+      const res = [];
+      const copied = ps.map(p=>Object.assign({},p));
+      while(done < n){
+        const available = copied.filter(p=>p.at <= time && !p.done);
+        if(available.length === 0){
+          time = Math.min(...copied.filter(p=>!p.done).map(p=>p.at));
+          continue;
+        }
+        available.sort((a,b)=>a.bt - b.bt || a.at - b.at);
+        const p = available[0];
+        time += p.bt; p.ct = time; p.tat = p.ct - p.at; p.wt = p.tat - p.bt; p.done = true; done++; res.push(p);
+      }
+      // Preserve original pid ordering in output array
+      return res.map(r=>({pid:r.pid,at:r.at,bt:r.bt,pr:r.pr,ct:r.ct,wt:r.wt,tat:r.tat}));
+    }
+
+    function priorityScheduling(ps){
+      // Non-preemptive priority (lower value = higher priority)
+      const n = ps.length;
+      let time = 0, done = 0;
+      const res = [];
+      const copied = ps.map(p=>Object.assign({},p));
+      while(done < n){
+        const available = copied.filter(p=>p.at <= time && !p.done);
+        if(available.length === 0){
+          time = Math.min(...copied.filter(p=>!p.done).map(p=>p.at));
+          continue;
+        }
+        available.sort((a,b)=>a.pr - b.pr || a.at - b.at);
+        const p = available[0];
+        time += p.bt; p.ct = time; p.tat = p.ct - p.at; p.wt = p.tat - p.bt; p.done = true; done++; res.push(p);
+      }
+      return res.map(r=>({pid:r.pid,at:r.at,bt:r.bt,pr:r.pr,ct:r.ct,wt:r.wt,tat:r.tat}));
+    }
+
+    function roundRobin(ps, quantum){
+      const queue = [];
+      const copied = ps.map(p=>Object.assign({},p));
+      let time = 0, idx = 0, completed = 0, n = copied.length;
+      // Initialize remaining time
+      copied.forEach(p=>p.rt = p.bt);
+      // Enqueue processes that arrive at time 0 (or earliest)
+      while(completed < n){
+        // enqueue newly arrived
+        copied.forEach(p=>{
+          if(!p.enqueued && p.at <= time && p.rt>0){ p.enqueued = true; queue.push(p); }
+        });
+        if(queue.length === 0){
+          // jump to next arrival
+          const next = Math.min(...copied.filter(p=>p.rt>0).map(p=>p.at));
+          time = Math.max(time, next);
+          copied.forEach(p=>{ if(!p.enqueued && p.at <= time && p.rt>0){ p.enqueued=true; queue.push(p); } });
+        }
+        const p = queue.shift();
+        if(!p) break;
+        const exec = Math.min(quantum, p.rt);
+        p.rt -= exec; time += exec;
+        // enqueue any newly arrived during this quantum
+        copied.forEach(q=>{ if(!q.enqueued && q.at <= time && q.rt>0){ q.enqueued = true; queue.push(q); } });
+        if(p.rt > 0) queue.push(p);
+        else { p.ct = time; p.tat = p.ct - p.at; p.wt = p.tat - p.bt; completed++; }
+      }
+      return copied.map(r=>({pid:r.pid,at:r.at,bt:r.bt,pr:r.pr,ct:r.ct||0,wt:r.wt||0,tat:r.tat||0}));
+    }
+
+    runBtn.addEventListener('click', ()=>{
+      let processes = readProcesses();
+      if(processes.length === 0){ resultArea.textContent = 'Add at least one process.'; return; }
+      const algo = algoSel.value;
+      let out = '';
+      if(algo === 'fcfs'){
+        const res = fcfs(processes);
+        out = formatTable(res);
+      } else if(algo === 'sjf'){
+        const res = sjf(processes);
+        out = formatTable(res);
+      } else if(algo === 'priority'){
+        const res = priorityScheduling(processes);
+        out = formatTable(res);
+      } else if(algo === 'rr'){
+        const q = parseInt(quantumInput.value,10) || 1;
+        const res = roundRobin(processes, q);
+        out = formatTable(res);
+      }
+      resultArea.textContent = out;
+    });
+
+    // seed sample rows on load
+    resetTable();
+  </script>
+</body>
+</html>
